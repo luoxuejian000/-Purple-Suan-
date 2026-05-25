@@ -1,11 +1,3 @@
-/**
- * 自我进化技能生成器 — 基于EvoSkills原理：通过迭代失败分析自动生成技能
- * 理论根基：矛盾动力论 — 矛盾是系统演化的内在动力，失败是进化的燃料
- * 双组件架构：
- *   - Skill Proposer：分析失败轨迹，提出新技能
- *   - Skill Verifier：验证新技能的有效性
- */
-
 import fs from 'fs';
 import path from 'path';
 import { memory } from './hierarchical-memory';
@@ -26,16 +18,10 @@ export interface EvolutionReport {
   successRate: number;
 }
 
-/**
- * 技能进化器
- */
 export class SkillEvolver {
-  private failureThreshold = 0.5; // 和谐度低于此值视为失败
-  private minFailures = 3;       // 最少失败次数才触发进化
+  private failureThreshold = 0.5;
+  private minFailures = 3;
 
-  /**
-   * 分析执行历史，自动生成技能提案
-   */
   async evolve(): Promise<EvolutionReport> {
     const stats = memory.getStats();
     const recentFailures = memory.search('', 50).filter(m => (m.harmonyScore || 0) < this.failureThreshold);
@@ -44,7 +30,6 @@ export class SkillEvolver {
       return { newSkills: [], refinedSkills: [], successRate: stats.averageHarmony };
     }
 
-    // 1. 语义聚类：将失败案例按语义相似度分组
     const clusters: Map<string, typeof recentFailures> = new Map();
     for (const failure of recentFailures) {
       const similar = await semanticMemory.search(failure.content, 3);
@@ -53,7 +38,6 @@ export class SkillEvolver {
       clusters.get(clusterKey)!.push(failure);
     }
 
-    // 2. 为每个高频失败簇生成技能提案
     const proposals: SkillProposal[] = [];
     for (const [key, failures] of clusters) {
       if (failures.length >= this.minFailures) {
@@ -62,16 +46,14 @@ export class SkillEvolver {
           name: `auto-skill-${Date.now()}`,
           description: `自动生成：修复"${key}"相关逻辑问题`,
           pattern: key,
-          confidence: 1 - avgH, // 失败越严重，技能越需要生成
+          confidence: 1 - avgH,
         });
       }
     }
 
-    // 3. 将技能提案固化为 SKILL.md 文件
     for (const proposal of proposals) {
       const skillDir = path.join(SKILLS_DIR, proposal.name);
       if (!fs.existsSync(skillDir)) fs.mkdirSync(skillDir, { recursive: true });
-      
       const skillContent = `---
 name: ${proposal.name}
 description: ${proposal.description}
@@ -93,11 +75,7 @@ auto_generated: true
       fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillContent);
     }
 
-    return {
-      newSkills: proposals,
-      refinedSkills: [],
-      successRate: stats.averageHarmony,
-    };
+    return { newSkills: proposals, refinedSkills: [], successRate: stats.averageHarmony };
   }
 
   getStatus() {
