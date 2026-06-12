@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "servers": {
+      "aegis": {
+        "command": "python",
+        "args": ["./aegis/src/aegis_daemon.py", "--mode", "simulate"],
+        "transport": "streamable-http",
+        "url": "http://localhost:8001/mcp"
+      }
+    }
+  }
+}

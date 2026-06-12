@@ -4,32 +4,13 @@
  * 此模块是紫天鹅与水晶之心之间的核心桥梁，直接复用 mcp_tool.py 中的诊断函数
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import path from 'path';
-import { existsSync } from 'fs';
+import fs from 'fs';
+import os from 'os';
 
 const CRYSTAL_HEART = 'D:/luoxuejian000/new02/hermes-agent-main/hermes-agent-main';
-
-// 尝试多个可能的 Python 路径
-function findPythonPath(): string {
-  const possiblePaths = [
-    path.join(CRYSTAL_HEART, '.venv', 'Scripts', 'python.exe'),
-    path.join(CRYSTAL_HEART, '.venv', 'bin', 'python'),
-    'python3',
-    'python',
-    'py'
-  ];
-  for (const p of possiblePaths) {
-    if (existsSync(p) || !p.includes('/')) {
-      if (!p.includes('/') || existsSync(p)) {
-        return p;
-      }
-    }
-  }
-  return 'python';
-}
-
-const PYTHON = findPythonPath();
+const PYTHON = path.join(CRYSTAL_HEART, '.venv', 'Scripts', 'python.exe');
 
 export interface DiagnosisReport {
   U: number;
@@ -41,42 +22,42 @@ export interface DiagnosisReport {
   suggestions: string[];
 }
 
-/**
- * 直接调用水晶之心中真实的 evaluate_text 函数进行诊断
- * @param text 待评估的文本
- * @returns 四维诊断报告
- */
 export function diagnoseText(text: string): Promise<DiagnosisReport> {
   return new Promise((resolve, reject) => {
-    // 对文本进行安全处理，防止注入
-    const safeText = text
-      .replace(/\\/g, '\\\\')
-      .replace(/'/g, "\\'")
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, '\\n')
-      .replace(/\r/g, '\\r')
-      .replace(/\t/g, '\\t');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swan-'));
+    const scriptPath = path.join(tempDir, 'diagnose.py');
+    const inputPath = path.join(tempDir, 'input.txt');
     
-    // 直接调用 mcp_tool.py 中的 evaluate_text 函数
+    fs.writeFileSync(inputPath, text, 'utf8');
+    
     const script = `
 import sys
 import json
+import os
+
 sys.path.insert(0, r'${CRYSTAL_HEART.replace(/\\/g, '\\\\')}')
-try:
-    from mcp_tool import evaluate_text
-    result = evaluate_text(r'''${safeText}''')
-    print(json.dumps(result, ensure_ascii=False))
-except Exception as e:
-    print(json.dumps({
-        'U': 0.5, 'D': 0.5, 'A': 0.5, 'H': 0.5,
-        'verdict': '诊断引擎异常：' + str(e),
-        'drift_warnings': [],
-        'suggestions': []
-    }))
+
+from mcp_tool import evaluate_text
+
+input_file = r'${inputPath.replace(/\\/g, '\\\\')}'
+with open(input_file, 'r', encoding='utf-8') as f:
+    text = f.read()
+
+result = evaluate_text(text)
+print(json.dumps(result, ensure_ascii=False))
+
+import shutil
+shutil.rmtree(r'${tempDir.replace(/\\/g, '\\\\')}', ignore_errors=True)
 `;
     
-    const child = exec(`${PYTHON} -c "${script.replace(/"/g, '\\"')}`, { timeout: 30000 }, (err, stdout, stderr) => {
-      if (err && !stdout.trim() === '') {
+    fs.writeFileSync(scriptPath, script, 'utf8');
+    
+    execFile(PYTHON, [scriptPath], { timeout: 60000, cwd: CRYSTAL_HEART }, (err, stdout, stderr) => {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch { }
+      
+      if (err) {
         reject(new Error(`诊断引擎调用失败: ${stderr || err.message}`));
         return;
       }
@@ -85,7 +66,7 @@ except Exception as e:
         resolve({
           U: result.U, D: result.D, A: result.A, H: result.H,
           verdict: result.verdict,
-          drift_warnings: result.drift_warnings || [],
+          drift_warnings: result.drift_warnings || result.warnings || [],
           suggestions: result.suggestions || [],
         });
       } catch (e) {
